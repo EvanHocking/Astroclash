@@ -6,15 +6,14 @@ using System;
 
 public class playerController : NetworkBehaviour
 {
-
-    //acceleration amount per second added to velocity. de-acceleration is 2:1 proportional to acceleration
-    private float acceleration = 1.0f;
-    //maximum speed of player ship
-    private float maxVelocity = 3.0f;
-    private float velocity = 0.0f;
-    //speed at which they can rotate (45 degrees per second)
-    private Vector3 rotationAcceleration = new Vector3(0.0f, 0.0f, 90.0f);
-    private Vector3 rotationDieOff = new Vector3(0.0f, 0.0f, 0.0f);
+    
+    public float accelDelta;
+    public float maxVelocity;
+    public float rotationSpeed;
+    public float angle;
+    public Vector2 acceleration;
+    public Vector2 velocity;
+    public bool moving;
 
     private Camera playerCamera;
 
@@ -23,7 +22,14 @@ public class playerController : NetworkBehaviour
         GameObject parent = gameObject.transform.parent.gameObject;
         playerCamera = parent.GetComponentInChildren<Camera>();
     }
-    
+
+    void Awake()
+    {
+        accelDelta = 10;
+        maxVelocity = 16;
+        rotationSpeed = 120;
+    }
+
     // Update is called once per frame
     void Update()
     {
@@ -40,53 +46,46 @@ public class playerController : NetworkBehaviour
             Debug.Log("Current Y: " + velocity * (float)Math.Sin(transform.eulerAngles.z));
 
             //Movement is broken down into: X = Movement_Speed * cos(rotation_angle) Y = Movement_Speed * sin(rotation_angle)
-            float angle = (float)(transform.eulerAngles.z * (Math.PI / 180));
-            transform.position += new Vector3(velocity * (float)Math.Cos(angle), velocity * (float)Math.Sin(angle), 0) * Time.deltaTime;
-            transform.Rotate(rotationDieOff * Time.deltaTime);
-            rotationDieOff -= rotationDieOff * 0.50f * Time.deltaTime;
-
-            if (Input.GetKey(KeyCode.W))
-            {
-                //adding player speed, until max speed is reached
-                if(velocity + acceleration <= maxVelocity)
-                {
-                    velocity += acceleration * Time.deltaTime;
-                }
-                else if ((velocity + acceleration) >= maxVelocity && velocity + 0.25f <= maxVelocity)
-                {
-                    velocity += 0.25f * Time.deltaTime;
-                }
-                else 
-                {
-                    velocity = maxVelocity;
-                }
-            }
-            //Slow down
-            else if (Input.GetKey(KeyCode.S))
-            {
-                if((velocity - acceleration) > 0)
-                {
-                    velocity -= (acceleration) * Time.deltaTime;
-                }
-                else if ((velocity - acceleration) < 0 && velocity - 0.25f >= 0)
-                {
-                    velocity -= 0.25f * Time.deltaTime;
-                }
-                else 
-                {
-                    velocity = 0.0f;
-                }
-            }
-            
-            if (Input.GetKey(KeyCode.A))
-            {
-                transform.Rotate(rotationAcceleration * Time.deltaTime);
-                
-            }
-            else if (Input.GetKey(KeyCode.D))
-            {
-                transform.Rotate(-rotationAcceleration * Time.deltaTime);
-            }
+            ProcessInputs();
+            velocity += acceleration;
+            acceleration *= 0;
+            velocity = Vector2.ClampMagnitude(velocity, maxVelocity);
         }
+    }
+
+    void FixedUpdate()
+    {
+        if (IsOwner)
+        {
+            transform.rotation = Quaternion.Euler(0, 0, angle);
+            transform.position = transform.position + new Vector3(velocity.x * Time.deltaTime, velocity.y * Time.deltaTime, 0);
+        }
+    }
+
+    void ProcessInputs()
+    {
+        float rotate = Input.GetAxisRaw("Horizontal");
+        Debug.Log("Rotate: " + rotate);
+        angle = angle + (rotate * rotationSpeed * -1 * Time.deltaTime);
+        if (angle < 0)
+        {
+            angle += 360;
+        }
+        else if (angle >= 360)
+        {
+            angle -= 360;
+        }
+        moving = Input.GetButton("Forward");
+        if (moving)
+        {
+            Vector2 direction = new Vector2(Mathf.Cos((angle) * Mathf.Deg2Rad), Mathf.Sin((angle) * Mathf.Deg2Rad));
+            ApplyForce(Vector2.ClampMagnitude(direction, accelDelta * Time.deltaTime));
+        }
+        Debug.Log("Moving: " + moving);
+    }
+
+    void ApplyForce(Vector2 force)
+    {
+        acceleration += force;
     }
 }
