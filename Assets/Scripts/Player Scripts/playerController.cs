@@ -6,6 +6,7 @@ using System;
 using UnityEngine.SceneManagement;
 using TMPro;
 using Unity.Collections;
+using Astroclash;
 
 public class playerController : NetworkBehaviour
 {
@@ -265,7 +266,13 @@ public class playerController : NetworkBehaviour
         if (collider.gameObject.tag == "enemyBullet" && IsOwner)
         {
             Debug.Log("Hit by enemy bullet!");
-            TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
+            
+            // TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
+            TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getSpawnerID(), collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
+
+            // get the spawner ID of the bullet
+            // send ServerRPC that executes only on the client with the spawner ID with message "DAMAGE"
+            // if client ID matches spawner id, award 10 points
             Debug.Log("Despawning Bullet");
             despawnBulletServerRpc(collider.gameObject.GetComponent<NetworkObject>().NetworkObjectId);
             Debug.Log("Despawned Bullet!");
@@ -285,16 +292,65 @@ public class playerController : NetworkBehaviour
         }
     }
 
-    private void TakeDamage(float damage)
+    [ServerRpc]
+    private void testMessageServerRpc(string message, ServerRpcParams serverRpcParams = default)
+    {
+        Debug.Log(message);
+    }
+
+    // make sure to pass in spawner id
+    //private void TakeDamage(float damage)
+    private void TakeDamage(ulong spawnerID, float damage)
     {
         healthFrameValue -= damage;
         inCombat = true;
         countDownStaterted = false;
         combatTimer = 0.0f;
 
-        healthBar.GetComponent<UIBar>().SetValue(healthFrameValue);
+        Debug.Log("TAKE DAMAGE FUNCTION ACCESSED");
 
-        checkDeath();
+        healthBar.GetComponent<UIBar>().SetValue(healthFrameValue);
+        awardPointsServerRpc(spawnerID, "DAMAGE");
+        //awardPointsClientRpc(spawnerID, "DAMAGE");
+
+        // pass in spawnder id
+        // checkDeath();
+        checkDeathByBullet(spawnerID);
+    }
+
+    [ServerRpc]
+    private void awardPointsServerRpc(ulong spawnerID, string message, ServerRpcParams serverRpcParams = default)
+    {
+        Debug.Log("Server received RPC message about " + message);
+        awardPointsClientRpc(spawnerID, message);
+    }
+
+    [ClientRpc]
+    private void awardPointsClientRpc(ulong spawnerID, string message)
+    {
+        ClientRpcParams clientRpcParams = new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new ulong[] { spawnerID }
+            }
+        };
+
+        Debug.Log("Client received RPC message about " + message);
+
+        int _score = Player.Instance.getScore();
+        if (message == "DAMAGE")
+        {
+            testMessageServerRpc("DAMAGE");
+            int finalScore = _score + 10;
+            Player.Instance.setScore(finalScore);
+        }
+        else if (message == "DEATH")
+        {
+            testMessageServerRpc("DEATH");
+            int finalScore = _score + 90;
+            Player.Instance.setScore(finalScore);
+        }
     }
 
     private IEnumerator combatTimerRoutine()
@@ -362,6 +418,27 @@ public class playerController : NetworkBehaviour
             weaponRegistry[i].SetActive(true);
         }
     }
+    
+    //private void checkDeath()
+    private void checkDeathByBullet(ulong spawnerID)
+    {
+        if (healthFrameValue <= 0 && isDead == false)
+        {
+            isDead = true;
+            spawnDebrisServerRpc(gameObject.transform.position);
+            disablePlayerServerRpc(gameObject.transform.parent.GetComponent<NetworkObject>().NetworkObjectId);
+            awardPointsServerRpc(spawnerID, "DEATH");
+
+
+
+            // send ServerRPC with spawner id with message "DEAD"
+            // if spawner id matches client id, award them 90 points
+            // will give player 10 for hitting and 90 for killing with 100 for total
+            canvas.SetActive(false);
+            StartCoroutine(deathTimerRoutine());
+        }
+    }
+
     private void checkDeath()
     {
         if (healthFrameValue <= 0 && isDead == false)
