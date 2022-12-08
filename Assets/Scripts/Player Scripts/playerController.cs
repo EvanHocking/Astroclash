@@ -6,6 +6,7 @@ using System;
 using UnityEngine.SceneManagement;
 using TMPro;
 using Unity.Collections;
+using Astroclash;
 
 public class playerController : NetworkBehaviour
 {
@@ -271,7 +272,9 @@ public class playerController : NetworkBehaviour
         if (collider.gameObject.tag == "enemyBullet" && IsOwner)
         {
             Debug.Log("Hit by enemy bullet!");
-            TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
+            //HERE
+            //TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
+            TakeDamage(collider.gameObject.GetComponent<bulletProjectiles>().getSpawnerID(), collider.gameObject.GetComponent<bulletProjectiles>().getDamage());
             Debug.Log("Despawning Bullet");
             despawnBulletServerRpc(collider.gameObject.GetComponent<NetworkObject>().NetworkObjectId);
             Debug.Log("Despawned Bullet!");
@@ -291,7 +294,7 @@ public class playerController : NetworkBehaviour
         }
     }
 
-    private void TakeDamage(float damage)
+    private void TakeDamage(ulong spawnerID, float damage)
     {
         healthFrameValue -= damage;
         inCombat = true;
@@ -299,8 +302,66 @@ public class playerController : NetworkBehaviour
         combatTimer = 0.0f;
 
         healthBar.GetComponent<UIBar>().SetValue(healthFrameValue);
+        //HERE
+        awardPointsServerRpc(spawnerID, "DAMAGE");
 
-        checkDeath();
+        //checkDeath();
+        //HERE
+        checkDeathByBullet(spawnerID);
+    }
+
+    [ServerRpc]
+    private void awardPointsServerRpc(ulong spawnerID, string message, ServerRpcParams serverRpcParams = default)
+    {
+        Debug.Log("Server received RPC message about " + message);
+        awardPointsClientRpc(spawnerID, message);
+    }
+
+    [ClientRpc]
+    private void awardPointsClientRpc(ulong spawnerID, string message)
+    {
+        ClientRpcParams clientRpcParams = new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new ulong[] { spawnerID }
+            }
+        };
+
+        Debug.Log("Client received RPC message about " + message);
+
+        int _score = Player.Instance.getScore();
+        if (message == "DAMAGE")
+        {
+            testMessageServerRpc("DAMAGE");
+            int finalScore = _score + 10;
+            Player.Instance.setScore(finalScore);
+        }
+        else if (message == "DEATH")
+        {
+            testMessageServerRpc("DEATH");
+            int finalScore = _score + 90;
+            Player.Instance.setScore(finalScore);
+        }
+    }
+
+    [ServerRpc]
+    private void testMessageServerRpc(string message, ServerRpcParams serverRpcParams = default)
+    {
+        Debug.Log(message);
+    }
+
+    private void checkDeathByBullet(ulong spawnerID)
+    {
+        if (healthFrameValue <= 0 && isDead == false)
+        {
+            isDead = true;
+            spawnDebrisServerRpc(gameObject.transform.position);
+            disablePlayerServerRpc(gameObject.transform.parent.GetComponent<NetworkObject>().NetworkObjectId);
+            awardPointsServerRpc(spawnerID, "DEATH");
+            canvas.SetActive(false);
+            StartCoroutine(deathTimerRoutine());
+        }
     }
 
     private IEnumerator combatTimerRoutine()
